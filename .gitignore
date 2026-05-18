@@ -27,3 +27,6 @@ lerna-debug.log*
 # misc
 .DS_Store
 .vercel
+
+/src/generated/prisma
+/src/lib/generated/prisma
