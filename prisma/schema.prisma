@@ -127,3 +127,17 @@ model Manzana {
   @@index([mpio_cdpmp])
   @@map("manzanas")
 }
+
+model BroadbandPerformanceTile {
+  id   Int            @id @default(autoincrement()) @map("ogc_fid")
+  geom Unsupported("geometry(Polygon,4326)")?
+
+  quadkey    String @unique @db.VarChar(16)
+  avg_d_kbps Int
+  avg_u_kbps Int
+  avg_lat_ms Int
+  tests      Int
+  devices    Int
+
+  @@map("broadband_performance_tiles")
+}

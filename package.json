@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run prisma:generate && npm run typecheck",
+    "import:broadband-tiles": "scripts/import-broadband-performance-tiles.sh",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "typecheck": "tsc --noEmit"

@@ -14,7 +14,7 @@ type Bbox = {
   values: [number, number, number, number];
 };
 
-type ManzanaFeatureRow = {
+type FeatureRow = {
   id: number;
   geometry: Record<string, unknown>;
   properties: Record<string, unknown>;
@@ -177,6 +177,21 @@ const MANZANAS_CATALOG = {
   },
 } as const;
 
+const BROADBAND_PERFORMANCE_TILES_CATALOG = {
+  table: "public.broadband_performance_tiles",
+  source: "Broadband performance tiles shapefile",
+  columns: {
+    ogc_fid: "Unique row identifier for the broadband performance tile.",
+    geom: "Polygon geometry for the broadband performance tile in EPSG:4326.",
+    quadkey: "Bing Maps quadkey identifying the zoom-16 tile.",
+    avg_d_kbps: "Average fixed broadband download speed in kilobits per second.",
+    avg_u_kbps: "Average fixed broadband upload speed in kilobits per second.",
+    avg_lat_ms: "Average fixed broadband latency in milliseconds.",
+    tests: "Number of speed tests represented by the tile.",
+    devices: "Number of devices represented by the tile.",
+  },
+} as const;
+
 function parseBbox(searchParams: URLSearchParams): Bbox | string {
   const bbox = searchParams.get("bbox");
   const minLng = searchParams.get("minLng");
@@ -239,8 +254,12 @@ app.get("/health", (c) => {
   });
 });
 
-app.get("/api/catalog", (c) => {
+app.get("/api/catalog/manzanas", (c) => {
   return c.json(MANZANAS_CATALOG);
+});
+
+app.get("/api/catalog/broadband-performance-tiles", (c) => {
+  return c.json(BROADBAND_PERFORMANCE_TILES_CATALOG);
 });
 
 app.get("/api/manzanas", async (c) => {
@@ -267,7 +286,7 @@ app.get("/api/manzanas", async (c) => {
   }
 
   try {
-    const rows = await prisma.$queryRaw<ManzanaFeatureRow[]>`
+    const rows = await prisma.$queryRaw<FeatureRow[]>`
       WITH bbox AS (
         SELECT ST_MakeEnvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326) AS geom
       )
@@ -303,6 +322,72 @@ app.get("/api/manzanas", async (c) => {
   } catch (error) {
     console.error("Failed to fetch manzanas", error);
     return c.json({ error: "Failed to fetch manzanas." }, 500);
+  }
+});
+
+app.get("/api/broadband-performance-tiles", async (c) => {
+  const url = new URL(c.req.url);
+  const bbox = parseBbox(url.searchParams);
+  if (typeof bbox === "string") {
+    return c.json({ error: bbox }, 400);
+  }
+
+  if (isBboxTooLarge(bbox)) {
+    return c.json(
+      {
+        error: "Bbox is too large. Request a smaller map viewport.",
+        max_area_degrees: MAX_BBOX_AREA_DEGREES,
+        max_span_degrees: MAX_BBOX_SPAN_DEGREES,
+      },
+      413,
+    );
+  }
+
+  const limit = parseLimit(url.searchParams.get("limit"));
+  if (typeof limit === "string") {
+    return c.json({ error: limit }, 400);
+  }
+
+  try {
+    const rows = await prisma.$queryRaw<FeatureRow[]>`
+      WITH bbox AS (
+        SELECT ST_MakeEnvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326) AS geom
+      )
+      SELECT
+        b.ogc_fid AS id,
+        ST_AsGeoJSON(b.geom, 6)::jsonb AS geometry,
+        to_jsonb(b) - 'geom' AS properties
+      FROM public.broadband_performance_tiles b, bbox
+      WHERE b.geom && bbox.geom
+        AND ST_Intersects(b.geom, bbox.geom)
+      ORDER BY b.ogc_fid
+      LIMIT ${limit + 1};
+    `;
+
+    const truncated = rows.length > limit;
+    const features = rows.slice(0, limit).map((row) => ({
+      type: "Feature" as const,
+      id: row.id,
+      geometry: row.geometry,
+      properties: row.properties,
+    }));
+
+    return c.json({
+      type: "FeatureCollection",
+      bbox: bbox.values,
+      meta: {
+        limit,
+        returned: features.length,
+        truncated,
+      },
+      features,
+    });
+  } catch (error) {
+    console.error("Failed to fetch broadband performance tiles", error);
+    return c.json(
+      { error: "Failed to fetch broadband performance tiles." },
+      500,
+    );
   }
 });
 
