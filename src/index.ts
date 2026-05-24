@@ -192,6 +192,36 @@ const BROADBAND_PERFORMANCE_TILES_CATALOG = {
   },
 } as const;
 
+const VIAS_CATALOG = {
+  table: "public.vias",
+  source: "VIAS shapefile",
+  columns: {
+    ogc_fid: "Unique row identifier for the road feature.",
+    geom: "MultiLineString geometry for the road feature in EPSG:4326.",
+    objectid: "Source object identifier.",
+    fid_mgn_ad: "Source MGN administrative feature identifier.",
+    dpto_ccdgo: "Department code.",
+    dpto_nano_: "Source department year or numeric metadata field.",
+    dpto_cnmbr: "Department name.",
+    dpto_cacto: "Department act metadata.",
+    dpto_narea: "Department area metadata.",
+    dpto_csmbl: "Department symbol code metadata.",
+    dpto_nano: "Department year metadata.",
+    pais_pais_: "Country code metadata.",
+    shape_leng: "Administrative geometry length metadata.",
+    fid_roads: "Source roads feature identifier.",
+    osm_id: "OpenStreetMap road identifier.",
+    name: "Road name.",
+    ref: "Road reference code.",
+    type: "OpenStreetMap road type.",
+    oneway: "One-way road flag.",
+    bridge: "Bridge flag.",
+    tunnel: "Tunnel flag.",
+    maxspeed: "Maximum speed metadata.",
+    shape_le_1: "Road geometry length metadata.",
+  },
+} as const;
+
 function parseBbox(searchParams: URLSearchParams): Bbox | string {
   const bbox = searchParams.get("bbox");
   const minLng = searchParams.get("minLng");
@@ -260,6 +290,10 @@ app.get("/api/catalog/manzanas", (c) => {
 
 app.get("/api/catalog/broadband-performance-tiles", (c) => {
   return c.json(BROADBAND_PERFORMANCE_TILES_CATALOG);
+});
+
+app.get("/api/catalog/vias", (c) => {
+  return c.json(VIAS_CATALOG);
 });
 
 app.get("/api/manzanas", async (c) => {
@@ -388,6 +422,69 @@ app.get("/api/broadband-performance-tiles", async (c) => {
       { error: "Failed to fetch broadband performance tiles." },
       500,
     );
+  }
+});
+
+app.get("/api/vias", async (c) => {
+  const url = new URL(c.req.url);
+  const bbox = parseBbox(url.searchParams);
+  if (typeof bbox === "string") {
+    return c.json({ error: bbox }, 400);
+  }
+
+  if (isBboxTooLarge(bbox)) {
+    return c.json(
+      {
+        error: "Bbox is too large. Request a smaller map viewport.",
+        max_area_degrees: MAX_BBOX_AREA_DEGREES,
+        max_span_degrees: MAX_BBOX_SPAN_DEGREES,
+      },
+      413,
+    );
+  }
+
+  const limit = parseLimit(url.searchParams.get("limit"));
+  if (typeof limit === "string") {
+    return c.json({ error: limit }, 400);
+  }
+
+  try {
+    const rows = await prisma.$queryRaw<FeatureRow[]>`
+      WITH bbox AS (
+        SELECT ST_MakeEnvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326) AS geom
+      )
+      SELECT
+        v.ogc_fid AS id,
+        ST_AsGeoJSON(v.geom, 6)::jsonb AS geometry,
+        to_jsonb(v) - 'geom' AS properties
+      FROM public.vias v, bbox
+      WHERE v.geom && bbox.geom
+        AND ST_Intersects(v.geom, bbox.geom)
+      ORDER BY v.ogc_fid
+      LIMIT ${limit + 1};
+    `;
+
+    const truncated = rows.length > limit;
+    const features = rows.slice(0, limit).map((row) => ({
+      type: "Feature" as const,
+      id: row.id,
+      geometry: row.geometry,
+      properties: row.properties,
+    }));
+
+    return c.json({
+      type: "FeatureCollection",
+      bbox: bbox.values,
+      meta: {
+        limit,
+        returned: features.length,
+        truncated,
+      },
+      features,
+    });
+  } catch (error) {
+    console.error("Failed to fetch vias", error);
+    return c.json({ error: "Failed to fetch vias." }, 500);
   }
 });
 

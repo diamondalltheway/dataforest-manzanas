@@ -141,3 +141,35 @@ model BroadbandPerformanceTile {
 
   @@map("broadband_performance_tiles")
 }
+
+model Via {
+  id   Int            @id @default(autoincrement()) @map("ogc_fid")
+  geom Unsupported("geometry(MultiLineString,4326)")?
+
+  objectid    BigInt?
+  fid_mgn_ad  BigInt?
+  dpto_ccdgo  String?  @db.VarChar(2)
+  dpto_nano_  Int?
+  dpto_cnmbr  String?  @db.VarChar(60)
+  dpto_cacto  String?  @db.VarChar(50)
+  dpto_narea  Decimal? @db.Decimal(23, 11)
+  dpto_csmbl  String?  @db.VarChar(3)
+  dpto_nano   Int?
+  pais_pais_  String?  @db.VarChar(3)
+  shape_leng  Decimal? @db.Decimal(19, 11)
+  fid_roads   BigInt?
+  osm_id      String?  @db.VarChar(11)
+  name        String?  @db.VarChar(48)
+  ref         String?  @db.VarChar(16)
+  type        String?  @db.VarChar(16)
+  oneway      Int?
+  bridge      Int?
+  tunnel      Int?
+  maxspeed    Int?
+  shape_le_1  Decimal? @db.Decimal(19, 11)
+
+  @@index([osm_id])
+  @@index([dpto_ccdgo])
+  @@index([type])
+  @@map("vias")
+}
